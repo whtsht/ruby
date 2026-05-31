@@ -2750,8 +2750,10 @@ rb_ary_each(VALUE ary)
     long i;
     ary_verify(ary);
     RETURN_SIZED_ENUMERATOR(ary, 0, 0, ary_enum_length);
+    unsigned int backedge_pc = rb_trace_c_iter_pc();
     for (i=0; i<RARRAY_LEN(ary); i++) {
         rb_yield(RARRAY_AREF(ary, i));
+        if (backedge_pc != 0) backedge(backedge_pc);
     }
     return ary;
 }

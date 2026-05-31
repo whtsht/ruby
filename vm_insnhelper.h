@@ -11,6 +11,18 @@
 
 **********************************************************************/
 
+/* JIT hotspot detection: imported from Wasm host on wasm32-wasi.
+ * Guarded so internal/vm.h can declare the same import for array.c/range.c. */
+#ifndef RUBY_WASM_BACKEDGE_DECLARED
+#define RUBY_WASM_BACKEDGE_DECLARED
+#if defined(__wasm__) && defined(__wasi__)
+__attribute__((import_module("env"), import_name("backedge")))
+extern void backedge(unsigned int pc);
+#else
+static inline void backedge(unsigned int pc) { (void)pc; }
+#endif
+#endif
+
 RUBY_EXTERN VALUE ruby_vm_const_missing_count;
 RUBY_EXTERN rb_serial_t ruby_vm_constant_cache_invalidations;
 RUBY_EXTERN rb_serial_t ruby_vm_constant_cache_misses;

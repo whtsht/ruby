@@ -38,6 +38,7 @@
 #include "internal/string.h"
 #include "internal/util.h"
 #include "internal/variable.h"
+#include "internal/vm.h"
 #include "ruby/encoding.h"
 #include "ruby/util.h"
 #include "builtin.h"
@@ -3023,6 +3024,7 @@ num_step(int argc, VALUE *argv, VALUE from)
     }
 
     desc = num_step_scan_args(argc, argv, &to, &step, TRUE, FALSE);
+    unsigned int backedge_pc = rb_trace_c_iter_pc();
     if (rb_equal(step, INT2FIX(0))) {
         inf = 1;
     }
@@ -3037,19 +3039,25 @@ num_step(int argc, VALUE *argv, VALUE from)
         long diff = FIX2LONG(step);
 
         if (inf) {
-            for (;; i += diff)
+            for (;; i += diff) {
                 rb_yield(LONG2FIX(i));
+                if (backedge_pc != 0) backedge(backedge_pc);
+            }
         }
         else {
             long end = FIX2LONG(to);
 
             if (desc) {
-                for (; i >= end; i += diff)
+                for (; i >= end; i += diff) {
                     rb_yield(LONG2FIX(i));
+                    if (backedge_pc != 0) backedge(backedge_pc);
+                }
             }
             else {
-                for (; i <= end; i += diff)
+                for (; i <= end; i += diff) {
                     rb_yield(LONG2FIX(i));
+                    if (backedge_pc != 0) backedge(backedge_pc);
+                }
             }
         }
     }
@@ -3057,14 +3065,18 @@ num_step(int argc, VALUE *argv, VALUE from)
         VALUE i = from;
 
         if (inf) {
-            for (;; i = rb_funcall(i, '+', 1, step))
+            for (;; i = rb_funcall(i, '+', 1, step)) {
                 rb_yield(i);
+                if (backedge_pc != 0) backedge(backedge_pc);
+            }
         }
         else {
             ID cmp = desc ? '<' : '>';
 
-            for (; !RTEST(rb_funcall(i, cmp, 1, to)); i = rb_funcall(i, '+', 1, step))
+            for (; !RTEST(rb_funcall(i, cmp, 1, to)); i = rb_funcall(i, '+', 1, step)) {
                 rb_yield(i);
+                if (backedge_pc != 0) backedge(backedge_pc);
+            }
         }
     }
     return from;
@@ -5818,12 +5830,14 @@ static VALUE
 int_upto(VALUE from, VALUE to)
 {
     RETURN_SIZED_ENUMERATOR(from, 1, &to, int_upto_size);
+    unsigned int backedge_pc = rb_trace_c_iter_pc();
     if (FIXNUM_P(from) && FIXNUM_P(to)) {
         long i, end;
 
         end = FIX2LONG(to);
         for (i = FIX2LONG(from); i <= end; i++) {
             rb_yield(LONG2FIX(i));
+            if (backedge_pc != 0) backedge(backedge_pc);
         }
     }
     else {
@@ -5831,6 +5845,7 @@ int_upto(VALUE from, VALUE to)
 
         while (!(c = rb_funcall(i, '>', 1, to))) {
             rb_yield(i);
+            if (backedge_pc != 0) backedge(backedge_pc);
             i = rb_funcall(i, '+', 1, INT2FIX(1));
         }
         ensure_cmp(c, i, to);
@@ -5868,12 +5883,14 @@ static VALUE
 int_downto(VALUE from, VALUE to)
 {
     RETURN_SIZED_ENUMERATOR(from, 1, &to, int_downto_size);
+    unsigned int backedge_pc = rb_trace_c_iter_pc();
     if (FIXNUM_P(from) && FIXNUM_P(to)) {
         long i, end;
 
         end = FIX2LONG(to);
         for (i=FIX2LONG(from); i >= end; i--) {
             rb_yield(LONG2FIX(i));
+            if (backedge_pc != 0) backedge(backedge_pc);
         }
     }
     else {
@@ -5881,6 +5898,7 @@ int_downto(VALUE from, VALUE to)
 
         while (!(c = rb_funcall(i, '<', 1, to))) {
             rb_yield(i);
+            if (backedge_pc != 0) backedge(backedge_pc);
             i = rb_funcall(i, '-', 1, INT2FIX(1));
         }
         if (NIL_P(c)) rb_cmperr(i, to);

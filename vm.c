@@ -219,6 +219,17 @@ rb_vm_frame_block_handler(const rb_control_frame_t *cfp)
     return VM_CF_BLOCK_HANDLER(cfp);
 }
 
+unsigned int
+rb_trace_c_iter_pc(void)
+{
+    const rb_execution_context_t *ec = GET_EC();
+    const rb_control_frame_t *caller_cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(ec->cfp);
+    if (caller_cfp->iseq != NULL) {
+        return (unsigned int)(uintptr_t)caller_cfp->pc;
+    }
+    return 0;
+}
+
 #if VM_CHECK_MODE > 0
 static int
 VM_CFP_IN_HEAP_P(const rb_execution_context_t *ec, const rb_control_frame_t *cfp)

@@ -91,6 +91,25 @@ extern bool rb_free_at_exit;
 /* miniinit.c and builtin.c */
 void rb_free_loaded_builtin_table(void);
 
+/* metatracing JIT: backedge import (same decl as vm_insnhelper.h, guarded so
+ * either header may be included first). Declared here so C iterators in
+ * array.c/range.c can call backedge() directly from their own loop frame. */
+#ifndef RUBY_WASM_BACKEDGE_DECLARED
+#define RUBY_WASM_BACKEDGE_DECLARED
+#if defined(__wasm__) && defined(__wasi__)
+__attribute__((import_module("env"), import_name("backedge")))
+extern void backedge(unsigned int pc);
+#else
+static inline void backedge(unsigned int pc) { (void)pc; }
+#endif
+#endif
+
+/* vm.c -- metatracing JIT: compute the loop key for a C iterator back-edge.
+ * Returns the call-site pc of the iterator's Ruby caller (stable per call
+ * site, unique per loop), or 0 when there is no Ruby caller (C-driven ifunc
+ * block). */
+unsigned int rb_trace_c_iter_pc(void);
+
 /* vm_insnhelper.c */
 VALUE rb_equal_opt(VALUE obj1, VALUE obj2);
 VALUE rb_eql_opt(VALUE obj1, VALUE obj2);

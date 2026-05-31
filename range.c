@@ -27,6 +27,7 @@
 #include "internal/error.h"
 #include "internal/numeric.h"
 #include "internal/range.h"
+#include "internal/vm.h"
 
 VALUE rb_cRange;
 static ID id_beg, id_end, id_excl;
@@ -294,16 +295,19 @@ range_each_func(VALUE range, int (*func)(VALUE, VALUE), VALUE arg)
     VALUE b = RANGE_BEG(range);
     VALUE e = RANGE_END(range);
     VALUE v = b;
+    unsigned int backedge_pc = rb_trace_c_iter_pc();
 
     if (EXCL(range)) {
         while (r_less(v, e) < 0) {
             if ((*func)(v, arg)) break;
+            if (backedge_pc != 0) backedge(backedge_pc);
             v = rb_funcallv(v, id_succ, 0, 0);
         }
     }
     else {
         while ((c = r_less(v, e)) <= 0) {
             if ((*func)(v, arg)) break;
+            if (backedge_pc != 0) backedge(backedge_pc);
             if (!c) break;
             v = rb_funcallv(v, id_succ, 0, 0);
         }
@@ -535,18 +539,23 @@ range_step(int argc, VALUE *argv, VALUE range)
         rb_raise(rb_eArgError, "#step iteration for beginless ranges is meaningless");
     }
 
+    unsigned int backedge_pc = rb_trace_c_iter_pc();
+
     if (FIXNUM_P(b) && NIL_P(e) && FIXNUM_P(step)) {
         /* perform summation of numbers in C until their reach Fixnum limit */
         long i = FIX2LONG(b), unit = FIX2LONG(step);
         do {
             rb_yield(LONG2FIX(i));
+            if (backedge_pc != 0) backedge(backedge_pc);
             i += unit;          /* FIXABLE+FIXABLE never overflow */
         } while (FIXABLE(i));
         b = LONG2NUM(i);
 
         /* then switch to Bignum API */
-        for (;; b = rb_big_plus(b, step))
+        for (;; b = rb_big_plus(b, step)) {
             rb_yield(b);
+            if (backedge_pc != 0) backedge(backedge_pc);
+        }
     }
     else if (FIXNUM_P(b) && FIXNUM_P(e) && FIXNUM_P(step)) {
         /* fixnums are special: summation is performed in C for performance */
@@ -559,6 +568,7 @@ range_step(int argc, VALUE *argv, VALUE range)
             i = FIX2LONG(b);
             while (i > end) {
                 rb_yield(LONG2NUM(i));
+                if (backedge_pc != 0) backedge(backedge_pc);
                 i += unit;
             }
         }
@@ -568,6 +578,7 @@ range_step(int argc, VALUE *argv, VALUE range)
             i = FIX2LONG(b);
             while (i < end) {
                 rb_yield(LONG2NUM(i));
+                if (backedge_pc != 0) backedge(backedge_pc);
                 i += unit;
             }
         }
@@ -602,19 +613,24 @@ range_step(int argc, VALUE *argv, VALUE range)
     }
     else if (NIL_P(e)) {
         // endless range
-        for (;; v = rb_funcall(v, id_plus, 1, step))
+        for (;; v = rb_funcall(v, id_plus, 1, step)) {
             rb_yield(v);
+            if (backedge_pc != 0) backedge(backedge_pc);
+        }
     }
     else if (b_num_p && step_num_p && r_less(step, INT2FIX(0)) < 0) {
         // iterate backwards, for consistency with ArithmeticSequence
         if (EXCL(range)) {
-            for (; r_less(e, v) < 0; v = rb_funcall(v, id_plus, 1, step))
+            for (; r_less(e, v) < 0; v = rb_funcall(v, id_plus, 1, step)) {
                 rb_yield(v);
+                if (backedge_pc != 0) backedge(backedge_pc);
+            }
         }
         else {
             for (; (c = r_less(e, v)) <= 0; v = rb_funcall(v, id_plus, 1, step)) {
                 rb_yield(v);
                 if (!c) break;
+                if (backedge_pc != 0) backedge(backedge_pc);
             }
         }
 
@@ -632,13 +648,16 @@ range_step(int argc, VALUE *argv, VALUE range)
         // One preliminary addition to check the step moves iteration in the same direction as
         // from begin to end; otherwise, the iteration should be empty.
         if (EXCL(range)) {
-            for (; r_less(v, e) == dir; v = rb_funcall(v, id_plus, 1, step))
+            for (; r_less(v, e) == dir; v = rb_funcall(v, id_plus, 1, step)) {
                 rb_yield(v);
+                if (backedge_pc != 0) backedge(backedge_pc);
+            }
         }
         else {
             for (; (c = r_less(v, e)) == dir || c == 0; v = rb_funcall(v, id_plus, 1, step)) {
                 rb_yield(v);
                 if (!c) break;
+                if (backedge_pc != 0) backedge(backedge_pc);
             }
         }
     }
@@ -1079,8 +1098,10 @@ static VALUE
 range_each_fixnum_loop(VALUE beg, VALUE end, VALUE range)
 {
     long lim = FIX2LONG(end) + !EXCL(range);
+    unsigned int backedge_pc = rb_trace_c_iter_pc();
     for (long i = FIX2LONG(beg); i < lim; i++) {
         rb_yield(LONG2FIX(i));
+        if (backedge_pc != 0) backedge(backedge_pc);
     }
     return range;
 }
@@ -1202,8 +1223,10 @@ range_reverse_each_bignum_beginless(VALUE end)
 {
     RUBY_ASSERT(RBIGNUM_NEGATIVE_P(end));
 
+    unsigned int backedge_pc = rb_trace_c_iter_pc();
     for (;; end = rb_big_minus(end, INT2FIX(1))) {
         rb_yield(end);
+        if (backedge_pc != 0) backedge(backedge_pc);
     }
     UNREACHABLE;
 }
@@ -1214,9 +1237,11 @@ range_reverse_each_bignum(VALUE beg, VALUE end)
     RUBY_ASSERT(RBIGNUM_POSITIVE_P(beg) == RBIGNUM_POSITIVE_P(end));
 
     VALUE c;
+    unsigned int backedge_pc = rb_trace_c_iter_pc();
     while ((c = rb_big_cmp(beg, end)) != INT2FIX(1)) {
         rb_yield(end);
         if (c == INT2FIX(0)) break;
+        if (backedge_pc != 0) backedge(backedge_pc);
         end = rb_big_minus(end, INT2FIX(1));
     }
 }
@@ -1254,8 +1279,10 @@ range_reverse_each_fixnum_section(VALUE beg, VALUE end)
 
     long b = FIX2LONG(beg);
     long e = FIX2LONG(end);
+    unsigned int backedge_pc = rb_trace_c_iter_pc();
     for (long i = e; i >= b; --i) {
         rb_yield(LONG2FIX(i));
+        if (backedge_pc != 0) backedge(backedge_pc);
     }
 }
 
